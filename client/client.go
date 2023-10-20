@@ -3,7 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -15,8 +15,8 @@ import (
 
 	"github.com/andybrewer/mack"
 	"github.com/gorilla/websocket"
+	"github.com/trzsz/iterm2/api"
 	"google.golang.org/protobuf/proto"
-	"marwan.io/iterm2/api"
 )
 
 // New returns a new websocket connection
@@ -56,7 +56,7 @@ func New(appName string) (*Client, error) {
 	}
 	c, resp, err := d.Dial("ws://localhost", h)
 	if err != nil && resp != nil {
-		b, _ := ioutil.ReadAll(resp.Body)
+		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("error connecting to iTerm2: %v - body: %s", err, b)
 	}
 	if err != nil {
@@ -159,14 +159,4 @@ func (c *Client) Close() error {
 
 func id(i int64) *int64 {
 	return &i
-}
-
-func str(s string) *string {
-	return &s
-}
-
-func must(err error) {
-	if err != nil {
-		panic(err)
-	}
 }

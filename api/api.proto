@@ -1,6 +1,6 @@
 syntax = "proto2";
 option objc_class_prefix = "ITM";
-option go_package = "marwan.io/iterm2/api;api";
+option go_package = "github.com/trzsz/iterm2/api;api";
 package iterm2;
 
 // A note on session IDs:
