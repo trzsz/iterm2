@@ -25,11 +25,25 @@ import (
 // The cookie parameter is optional. If provided,
 // it will bypass script authentication prompts.
 func New(appName string) (*Client, error) {
+	if cookie := os.Getenv("ITERM2_COOKIE"); cookie != "" {
+		client, err := doNew(appName, cookie)
+		if err == nil {
+			return client, nil
+		}
+	}
+	client, err := doNew(appName, "")
+	if err != nil && strings.Contains(err.Error(), "The Python API is not enabled") {
+		return nil, fmt.Errorf("The Python API is not enabled")
+	}
+	return client, err
+}
+
+func doNew(appName string, cookie string) (*Client, error) {
 	h := http.Header{}
 	h.Set("origin", "ws://localhost/")
 	h.Set("x-iterm2-library-version", "go 3.6")
 	h.Set("x-iterm2-disable-auth-ui", "true")
-	if cookie := os.Getenv("ITERM2_COOKIE"); cookie != "" {
+	if cookie != "" {
 		h.Set("x-iterm2-cookie", cookie)
 	} else {
 		resp, err := mack.Tell("iTerm2", fmt.Sprintf("request cookie and key for app named %q", appName))
