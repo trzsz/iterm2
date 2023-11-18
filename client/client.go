@@ -19,33 +19,35 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// New returns a new websocket connection
-// that talks to the iTerm2 application.New
-// Callers must call the Close() method when done.
-// The cookie parameter is optional. If provided,
-// it will bypass script authentication prompts.
+// New returns a new websocket connection that talks to the iTerm2
+// application.New Callers must call the Close() method when done. The cookie
+// parameter is optional. If provided, it will bypass script authentication
+// prompts.
 func New(appName string) (*Client, error) {
+	// ITERM2_COOKIE is an an environment variable that's set on each terminal
+	// session. But it only seems to work the first time, then it gets
+	// invalidated. Therefore, we keep trying until it returns an error, then we
+	// try to generate a new cookie instead. See
+	// https://github.com/marwan-at-work/iterm2/issues/4
 	if cookie := os.Getenv("ITERM2_COOKIE"); cookie != "" {
-		client, err := doNew(appName, cookie)
+		client, err := newClient(appName, cookie)
 		if err == nil {
 			return client, nil
 		}
 	}
-	client, err := doNew(appName, "")
+	client, err := newClient(appName, "")
 	if err != nil && strings.Contains(err.Error(), "The Python API is not enabled") {
 		return nil, fmt.Errorf("The Python API is not enabled")
 	}
 	return client, err
 }
 
-func doNew(appName string, cookie string) (*Client, error) {
+func newClient(appName, cookie string) (*Client, error) {
 	h := http.Header{}
 	h.Set("origin", "ws://localhost/")
 	h.Set("x-iterm2-library-version", "go 3.6")
 	h.Set("x-iterm2-disable-auth-ui", "true")
-	if cookie != "" {
-		h.Set("x-iterm2-cookie", cookie)
-	} else {
+	if cookie == "" {
 		resp, err := mack.Tell("iTerm2", fmt.Sprintf("request cookie and key for app named %q", appName))
 		if err != nil {
 			return nil, fmt.Errorf("AppleScript/tell: %w", err)
@@ -54,9 +56,10 @@ func doNew(appName string, cookie string) (*Client, error) {
 		if len(fields) != 2 {
 			return nil, fmt.Errorf("incorrect field format: %q", resp)
 		}
-		h.Set("x-iterm2-cookie", fields[0])
+		cookie = fields[0]
 		h.Set("x-iterm2-key", fields[1])
 	}
+	h.Set("x-iterm2-cookie", cookie)
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("os.UserHomeDir: %w", err)
@@ -128,12 +131,12 @@ func (c *Client) readWorker(ctx context.Context) {
 		}
 		c.mu.Lock()
 		ch, ok := c.rpcs[resp.GetId()]
+		delete(c.rpcs, resp.GetId())
 		c.mu.Unlock()
 		if !ok {
 			fmt.Fprintf(os.Stderr, "could not find call for %d: %v\n", resp.GetId(), &resp)
 			continue
 		}
-		delete(c.rpcs, resp.GetId())
 		ch <- &resp
 	}
 }
