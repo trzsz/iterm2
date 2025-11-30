@@ -57,13 +57,33 @@ func (t *tab) ListSessions() ([]Session, error) {
 			if wt.GetTabId() != t.id {
 				continue
 			}
-			for _, link := range wt.GetRoot().GetLinks() {
-				list = append(list, &session{
-					c:  t.c,
-					id: link.GetSession().GetUniqueIdentifier(),
-				})
-			}
+			sessions := t.extractSessions(wt.GetRoot())
+			list = append(list, sessions...)
 		}
 	}
 	return list, nil
+}
+
+func (t *tab) extractSessions(node *api.SplitTreeNode) []Session {
+	var sessions []Session
+
+	if node == nil {
+		return sessions
+	}
+
+	for _, link := range node.GetLinks() {
+		switch child := link.GetChild().(type) {
+		case *api.SplitTreeNode_SplitTreeLink_Session:
+			if child.Session.GetUniqueIdentifier() != "" {
+				sessions = append(sessions, &session{
+					c:  t.c,
+					id: child.Session.GetUniqueIdentifier(),
+				})
+			}
+		case *api.SplitTreeNode_SplitTreeLink_Node:
+			sessions = append(sessions, t.extractSessions(child.Node)...)
+		}
+	}
+
+	return sessions
 }

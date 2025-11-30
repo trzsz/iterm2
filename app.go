@@ -3,6 +3,8 @@ package iterm2
 import (
 	"fmt"
 	"io"
+	"os"
+	"strings"
 
 	"github.com/trzsz/iterm2/api"
 	"github.com/trzsz/iterm2/client"
@@ -15,6 +17,7 @@ type App interface {
 	CreateWindow() (Window, error)
 	ListWindows() ([]Window, error)
 	SelectMenuItem(item string) error
+	GetCurrentWindowSession() (Window, Session, error)
 }
 
 // NewApp establishes a connection
@@ -97,6 +100,70 @@ func (a *app) SelectMenuItem(item string) error {
 	}
 	if resp.GetMenuItemResponse().GetStatus() != api.MenuItemResponse_OK {
 		return fmt.Errorf("menu item %q returned unexpected status: %q", item, resp.GetMenuItemResponse().GetStatus().String())
+	}
+	return nil
+}
+
+func (a *app) GetCurrentWindowSession() (Window, Session, error) {
+	sessionID := os.Getenv("ITERM_SESSION_ID")
+	if sessionID == "" {
+		return nil, nil, fmt.Errorf("ITERM_SESSION_ID environment variable is not set")
+	}
+
+	resp, err := a.c.Call(&api.ClientOriginatedMessage{
+		Submessage: &api.ClientOriginatedMessage_ListSessionsRequest{
+			ListSessionsRequest: &api.ListSessionsRequest{},
+		},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list sessions: %w", err)
+	}
+
+	lsr := resp.GetListSessionsResponse()
+	for _, win := range lsr.GetWindows() {
+		for _, tab := range win.GetTabs() {
+			root := tab.GetRoot()
+			if root == nil {
+				continue
+			}
+			for _, link := range root.GetLinks() {
+				if sess := getSessionFromLink(link, sessionID); sess != nil {
+					w := &window{
+						c:  a.c,
+						id: win.GetWindowId(),
+					}
+					s := &session{
+						c:  a.c,
+						id: sess.GetUniqueIdentifier(),
+					}
+					return w, s, nil
+				}
+			}
+		}
+	}
+
+	return nil, nil, fmt.Errorf("no session found for session ID: %s", sessionID)
+}
+
+func getSessionFromLink(link *api.SplitTreeNode_SplitTreeLink, sessionID string) *api.SessionSummary {
+	child := link.GetChild()
+	if child == nil {
+		return nil
+	}
+	switch child := child.(type) {
+	case *api.SplitTreeNode_SplitTreeLink_Session:
+		if child.Session != nil {
+			id := child.Session.GetUniqueIdentifier()
+			if id != "" && strings.Contains(sessionID, id) {
+				return child.Session
+			}
+		}
+	case *api.SplitTreeNode_SplitTreeLink_Node:
+		for _, childLink := range child.Node.GetLinks() {
+			if session := getSessionFromLink(childLink, sessionID); session != nil {
+				return session
+			}
+		}
 	}
 	return nil
 }
