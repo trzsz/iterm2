@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/andybrewer/mack"
@@ -37,7 +38,7 @@ func New(appName string) (*Client, error) {
 	}
 	client, err := newClient(appName, "")
 	if err != nil && strings.Contains(err.Error(), "The Python API is not enabled") {
-		return nil, fmt.Errorf("The Python API is not enabled")
+		return nil, fmt.Errorf("the Python API is not enabled")
 	}
 	return client, err
 }
@@ -99,6 +100,7 @@ type Client struct {
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 	writeCh chan writeReq
+	closed  atomic.Bool
 }
 
 type writeReq struct {
@@ -143,6 +145,9 @@ func (c *Client) readWorker(ctx context.Context) {
 
 // Call sends a request to the iTerm2 server
 func (c *Client) Call(req *api.ClientOriginatedMessage) (*api.ServerOriginatedMessage, error) {
+	if c.closed.Load() {
+		return nil, fmt.Errorf("client closed")
+	}
 	req.Id = id(rand.Int63())
 	ch := make(chan *api.ServerOriginatedMessage, 1)
 	c.mu.Lock()
@@ -168,8 +173,9 @@ func (c *Client) Call(req *api.ClientOriginatedMessage) (*api.ServerOriginatedMe
 // Close closes the websocket connection
 // and frees any goroutine resources
 func (c *Client) Close() error {
-	// TODO: if a *Client.Call is in flight, this will cause it to panic
-	close(c.writeCh)
+	if !c.closed.CompareAndSwap(false, true) {
+		return fmt.Errorf("already closed")
+	}
 	c.cancel()
 	return c.c.Close()
 }

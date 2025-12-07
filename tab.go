@@ -4,86 +4,81 @@ import (
 	"fmt"
 
 	"github.com/trzsz/iterm2/api"
-	"github.com/trzsz/iterm2/client"
 )
 
-// Tab abstracts an iTerm2 window tab
-type Tab interface {
-	SetTitle(string) error
-	ListSessions() ([]Session, error)
+// Tab represents an iTerm2 Tab
+type Tab struct {
+	app *App
+	wid string
+	tid string
 }
 
-type tab struct {
-	c        *client.Client
-	id       string
-	windowID string
+func newTab(app *App, wid, tid string) *Tab {
+	return &Tab{app, wid, tid}
 }
 
-func (t *tab) SetTitle(s string) error {
-	_, err := t.c.Call(&api.ClientOriginatedMessage{
+// GetApp returns the iTerm2 application instance that owns this tab
+func (t *Tab) GetApp() *App {
+	return t.app
+}
+
+// GetWindowID returns the unique identifier of the window containing this tab
+func (t *Tab) GetWindowID() string {
+	return t.wid
+}
+
+// GetWindow returns the window containing this tab
+func (t *Tab) GetWindow() *Window {
+	return newWindow(t.app, t.wid)
+}
+
+// GetTabID returns the unique identifier for this tab
+func (t *Tab) GetTabID() string {
+	return t.tid
+}
+
+// SetTitle changes the tab’s title
+func (t *Tab) SetTitle(s string) error {
+	invocation := fmt.Sprintf(`iterm2.set_title(title: "%s")`, s)
+	resp, err := t.app.c.Call(&api.ClientOriginatedMessage{
 		Submessage: &api.ClientOriginatedMessage_InvokeFunctionRequest{
 			InvokeFunctionRequest: &api.InvokeFunctionRequest{
-				Invocation: str(fmt.Sprintf(`iterm2.set_title(title: "%s")`, s)),
+				Invocation: &invocation,
 				Context: &api.InvokeFunctionRequest_Method_{
 					Method: &api.InvokeFunctionRequest_Method{
-						Receiver: &t.id,
+						Receiver: &t.tid,
 					},
 				},
 			},
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("could not call set_title: %w", err)
+		return fmt.Errorf("call set_title failed: %w", err)
+	}
+	ifResp := resp.GetInvokeFunctionResponse()
+	if ifResp == nil {
+		return fmt.Errorf("invoke_function_response is nil")
+	}
+	if err := ifResp.GetError(); err != nil {
+		return fmt.Errorf("set_title error: %s", err.GetErrorReason())
 	}
 	return nil
 }
 
-func (t *tab) ListSessions() ([]Session, error) {
-	list := []Session{}
-	resp, err := t.c.Call(&api.ClientOriginatedMessage{
-		Submessage: &api.ClientOriginatedMessage_ListSessionsRequest{
-			ListSessionsRequest: &api.ListSessionsRequest{},
-		},
+// ListSessions retrieves all sessions in this tab
+func (t *Tab) ListSessions() ([]*Session, error) {
+	var sessions []*Session
+	_, err := findSessionByMatch(t.app, func(wid, tid, sid string) bool {
+		if wid == t.wid && tid == t.tid {
+			sessions = append(sessions, newSession(t.app, wid, tid, sid))
+		}
+		return false
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error listing sessions for tab %q: %w", t.id, err)
+		return nil, err
 	}
-	lsr := resp.GetListSessionsResponse()
-	for _, window := range lsr.GetWindows() {
-		if window.GetWindowId() != t.windowID {
-			continue
-		}
-		for _, wt := range window.GetTabs() {
-			if wt.GetTabId() != t.id {
-				continue
-			}
-			sessions := t.extractSessions(wt.GetRoot())
-			list = append(list, sessions...)
-		}
+	if len(sessions) == 0 {
+		return nil, fmt.Errorf("no sessions found in tab: %v", t.tid)
 	}
-	return list, nil
-}
-
-func (t *tab) extractSessions(node *api.SplitTreeNode) []Session {
-	var sessions []Session
-
-	if node == nil {
-		return sessions
-	}
-
-	for _, link := range node.GetLinks() {
-		switch child := link.GetChild().(type) {
-		case *api.SplitTreeNode_SplitTreeLink_Session:
-			if child.Session.GetUniqueIdentifier() != "" {
-				sessions = append(sessions, &session{
-					c:  t.c,
-					id: child.Session.GetUniqueIdentifier(),
-				})
-			}
-		case *api.SplitTreeNode_SplitTreeLink_Node:
-			sessions = append(sessions, t.extractSessions(child.Node)...)
-		}
-	}
-
-	return sessions
+	return sessions, nil
 }
