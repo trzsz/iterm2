@@ -100,6 +100,7 @@ type Client struct {
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 	writeCh chan writeReq
+	cmu     sync.RWMutex
 	closed  atomic.Bool
 }
 
@@ -145,6 +146,8 @@ func (c *Client) readWorker(ctx context.Context) {
 
 // Call sends a request to the iTerm2 server
 func (c *Client) Call(req *api.ClientOriginatedMessage) (*api.ServerOriginatedMessage, error) {
+	c.cmu.RLock()
+	defer c.cmu.RUnlock()
 	if c.closed.Load() {
 		return nil, fmt.Errorf("client closed")
 	}
@@ -170,14 +173,21 @@ func (c *Client) Call(req *api.ClientOriginatedMessage) (*api.ServerOriginatedMe
 	return resp, nil
 }
 
-// Close closes the websocket connection
-// and frees any goroutine resources
+// Close closes the websocket connection and frees any goroutine resources
 func (c *Client) Close() error {
+	c.cmu.Lock()
+	defer c.cmu.Unlock()
 	if !c.closed.CompareAndSwap(false, true) {
 		return fmt.Errorf("already closed")
 	}
+	close(c.writeCh)
 	c.cancel()
 	return c.c.Close()
+}
+
+// IsClosed reports whether the client connection has been closed
+func (c *Client) IsClosed() bool {
+	return c.closed.Load()
 }
 
 func id(i int64) *int64 {

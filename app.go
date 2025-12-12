@@ -36,6 +36,11 @@ func (a *App) Close() error {
 	return a.c.Close()
 }
 
+// IsClosed reports whether the iTerm2 application connection has been closed
+func (a *App) IsClosed() bool {
+	return a.c.IsClosed()
+}
+
 // CreateWindow creates a new terminal window in iTerm2
 func (a *App) CreateWindow() (*Window, *Session, error) {
 	resp, err := a.c.Call(&api.ClientOriginatedMessage{

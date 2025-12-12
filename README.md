@@ -2,20 +2,30 @@
 
 ### Go library for automating iTerm2 Scripts
 
+Forked from [marwan-at-work/iterm2](https://github.com/marwan-at-work/iterm2).
+
 ### Install
 
 go get github.com/trzsz/iterm2
 
 ### Usage
 
-```golang
+```go
 package main
 
+import (
+	"log"
+
+	"github.com/trzsz/iterm2"
+)
+
 func main() {
-    app, err := iterm2.NewApp("MyCoolPlugin")
-    handle(err)
-    defer app.Close()
-    // use app to create or list windows, tabs, and sessions and send various commands to the terminal.
+	app, err := iterm2.NewApp("MyCoolPlugin")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = app.Close() }()
+	// use app to create or list windows, tabs, and sessions and send various commands to the terminal.
 }
 ```
 
